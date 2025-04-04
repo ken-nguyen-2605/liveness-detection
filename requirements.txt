@@ -1,0 +1,4 @@
+kagglehub
+torch
+opencv-python
+tqdm
