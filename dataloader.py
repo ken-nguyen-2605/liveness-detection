@@ -1,6 +1,6 @@
 """
-This module provides data loading and preprocessing functionality for the liveness detection system.
-It includes functions to load images from directories, preprocess them, and create data batches.
+This module provides data loading functionality for the liveness detection system.
+It includes functions to load images from directories and preprocess them.
 """
 
 import os
@@ -11,22 +11,19 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
 import glob
-from tqdm import tqdm
 
 class LivenessDataset(Dataset):
     """
-    Custom Dataset for loading liveness detection images
+    Custom Dataset for loading liveness detection images based on the provided folder structure
     """
-    def __init__(self, root_dir, transform=None, is_train=True):
+    def __init__(self, root_dir, transform=None):
         """
         Args:
-            root_dir (string): Directory with all the images
+            root_dir (string): Root directory with all the images (should contain 'fake' and 'real' subdirectories)
             transform (callable, optional): Optional transform to be applied on a sample
-            is_train (bool): If True, load training data, else load validation data
         """
         self.root_dir = root_dir
         self.transform = transform
-        self.is_train = is_train
         
         # Define the subdirectories for real and fake images
         self.real_dir = os.path.join(root_dir, 'real')
@@ -34,7 +31,12 @@ class LivenessDataset(Dataset):
         
         # Get all image paths
         self.real_images = glob.glob(os.path.join(self.real_dir, '**', '*.jpg'), recursive=True)
+        if not self.real_images:  # Try other extensions if no jpg files found
+            self.real_images = glob.glob(os.path.join(self.real_dir, '**', '*.png'), recursive=True)
+        
         self.fake_images = glob.glob(os.path.join(self.fake_dir, '**', '*.jpg'), recursive=True)
+        if not self.fake_images:  # Try other extensions if no jpg files found
+            self.fake_images = glob.glob(os.path.join(self.fake_dir, '**', '*.png'), recursive=True)
         
         # Combine all images and create labels
         self.image_paths = self.real_images + self.fake_images
@@ -51,6 +53,8 @@ class LivenessDataset(Dataset):
         
         # Read image
         image = cv2.imread(img_path)
+        if image is None:
+            raise ValueError(f"Could not load image at {img_path}")
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         # Convert to PIL Image for transforms
@@ -61,110 +65,63 @@ class LivenessDataset(Dataset):
             
         return image, label
 
-def get_transforms(is_train=True):
+def get_default_transforms():
     """
-    Get the image transforms for training or validation
-    
-    Args:
-        is_train (bool): If True, return training transforms, else return validation transforms
+    Get the standard image transforms for preprocessing
     
     Returns:
         transforms: Image transforms
     """
-    if is_train:
-        return transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(10),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], 
-                              std=[0.229, 0.224, 0.225])
-        ])
-    else:
-        return transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], 
-                              std=[0.229, 0.224, 0.225])
-        ])
+    return transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+                          std=[0.229, 0.224, 0.225])
+    ])
 
-def create_data_loaders(data_dir, batch_size=32, num_workers=4):
+def create_data_loader(data_dir, batch_size=32, num_workers=4, transform=None):
     """
-    Create training and validation data loaders
+    Create a data loader for the liveness detection dataset
     
     Args:
-        data_dir (string): Root directory containing the data
-        batch_size (int): Batch size for the data loaders
+        data_dir (string): Root directory containing the data (with 'fake' and 'real' subdirectories)
+        batch_size (int): Batch size for the data loader
         num_workers (int): Number of workers for data loading
+        transform (callable, optional): Custom transform to apply to the images
     
     Returns:
-        train_loader, val_loader: DataLoader objects for training and validation
+        data_loader: DataLoader object for the dataset
     """
-    # Create datasets
-    train_dataset = LivenessDataset(
-        root_dir=os.path.join(data_dir, 'train'),
-        transform=get_transforms(is_train=True),
-        is_train=True
+    # Create dataset
+    if transform is None:
+        transform = get_default_transforms()
+    
+    dataset = LivenessDataset(
+        root_dir=data_dir,
+        transform=transform
     )
     
-    val_dataset = LivenessDataset(
-        root_dir=os.path.join(data_dir, 'val'),
-        transform=get_transforms(is_train=False),
-        is_train=False
-    )
-    
-    # Create data loaders
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=True
-    )
-    
-    val_loader = DataLoader(
-        val_dataset,
+    # Create data loader
+    data_loader = DataLoader(
+        dataset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
         pin_memory=True
     )
     
-    return train_loader, val_loader
-
-def prepare_data_structure(base_dir):
-    """
-    Prepare the data directory structure for training
-    
-    Args:
-        base_dir (string): Base directory containing all the frames
-    """
-    # Create main directories
-    os.makedirs(os.path.join(base_dir, 'train', 'real'), exist_ok=True)
-    os.makedirs(os.path.join(base_dir, 'train', 'fake'), exist_ok=True)
-    os.makedirs(os.path.join(base_dir, 'val', 'real'), exist_ok=True)
-    os.makedirs(os.path.join(base_dir, 'val', 'fake'), exist_ok=True)
-    
-    print("Created data directory structure:")
-    print(f"{base_dir}/")
-    print("├── train/")
-    print("│   ├── real/")
-    print("│   └── fake/")
-    print("└── val/")
-    print("    ├── real/")
-    print("    └── fake/")
+    return data_loader
 
 if __name__ == "__main__":
     # Example usage
-    data_dir = "path/to/your/data"
-    prepare_data_structure(data_dir)
+    data_dir = "images"  # Directory containing 'fake' and 'real' subdirectories
     
-    # Create data loaders
-    train_loader, val_loader = create_data_loaders(data_dir)
+    # Create data loader
+    data_loader = create_data_loader(data_dir)
     
     # Example of iterating through the data
-    for images, labels in train_loader:
+    for images, labels in data_loader:
         print(f"Batch shape: {images.shape}")
         print(f"Labels shape: {labels.shape}")
-        break 
+        print(f"Labels: {labels}")
+        break
