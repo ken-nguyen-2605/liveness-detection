@@ -14,6 +14,7 @@ import os
 import argparse
 from tqdm import tqdm
 import glob
+import numpy as np
 
 def extract_frames(input_video, output_dir, interval=1.0):
     """
@@ -66,7 +67,7 @@ def extract_frames(input_video, output_dir, interval=1.0):
     print(f"Extracted {saved_count} frames from {input_video}")
     return saved_count
 
-def process_directory(input_dir, output_base_dir, interval=1.0, extensions=('*.mp4', '*.MOV')):
+def process_directory(input_dir, output_base_dir, interval=1.0, extensions=('*.mp4', '*.MOV', '*.avi', '*.mkv')):
     """
     Process all videos in a directory and its subdirectories
     """
@@ -78,6 +79,10 @@ def process_directory(input_dir, output_base_dir, interval=1.0, extensions=('*.m
     for ext in extensions:
         video_files.extend(glob.glob(os.path.join(input_dir, '**', ext), recursive=True))
     
+    if not video_files:
+        print(f"No video files found in {input_dir} with extensions: {extensions}")
+        return
+    
     print(f"Found {len(video_files)} video files")
     
     for video_file in video_files:
@@ -87,15 +92,12 @@ def process_directory(input_dir, output_base_dir, interval=1.0, extensions=('*.m
         
         # Extract frames
         frames = extract_frames(video_file, output_dir, interval)
-        total_frames += frames
-        total_processed += 1
+        if frames:
+            total_frames += frames
+            total_processed += 1
     
     print(f"Processed {total_processed} videos, extracted {total_frames} frames total")
-    
 
-'''
-python3 vid2img.py --input ./videos --output ./images --interval 1.0 --recursive
-'''
 def main():
     parser = argparse.ArgumentParser(description="Extract frames from videos at specified intervals")
     parser.add_argument("--input", required=True, help="Input video file or directory")
@@ -104,6 +106,9 @@ def main():
     parser.add_argument("--recursive", action="store_true", help="Process all videos in directory recursively")
     
     args = parser.parse_args()
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(args.output, exist_ok=True)
     
     if os.path.isdir(args.input) and args.recursive:
         process_directory(args.input, args.output, args.interval)
